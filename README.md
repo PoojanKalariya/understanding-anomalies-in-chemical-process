@@ -62,9 +62,7 @@ Deployment URL: https://understanding-anomalies-in-chemical-process.streamlit.ap
 
 ## Methodology and limitations
 
-- YAML annotations guide anomaly investigation; they do not prove sensor-level causation.
 - Normal and anomalous runs are independent experiments and are not treated as physically synchronized.
-- Unresolved annotation timestamps are retained and reported, never silently corrected or shaded as valid intervals.
 - The multi-sensor overview applies documented per-sensor robust baseline-relative scaling (median/MAD) for visual comparison. When no pre-event sample exists, it explicitly uses a same-operating-point normal recording as a scaling reference; this does not align experiments in time.
 - The detailed chart retains original sensor values.
 
