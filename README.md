@@ -58,7 +58,7 @@ streamlit run app.py
 
 ## Live demo
 
-Deployment URL: **TBD — add the Streamlit Community Cloud URL after deployment.**
+Deployment URL: https://understanding-anomalies-in-chemical-process.streamlit.app/
 
 ## Methodology and limitations
 
