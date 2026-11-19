@@ -68,12 +68,4 @@ Deployment URL: **TBD — add the Streamlit Community Cloud URL after deployment
 - The multi-sensor overview applies documented per-sensor robust baseline-relative scaling (median/MAD) for visual comparison. When no pre-event sample exists, it explicitly uses a same-operating-point normal recording as a scaling reference; this does not align experiments in time.
 - The detailed chart retains original sensor values.
 
-## Dataset attribution and license
 
-The included data subset is redistributed under the source record's **CC BY 4.0** license. Please retain attribution when reusing it.
-
-Arweiler, J., Jungjohann, I., Muraleedharan, A., Leitte, H., Burger, J., Münnemann, K., Jirasek, F., & Hasse, H. (2025). *Batch Distillation Data for Developing Machine Learning Anomaly Detection Methods*. Zenodo. [https://doi.org/10.5281/zenodo.17395544](https://doi.org/10.5281/zenodo.17395544)
-
-## Project status
-
-This release is the exploratory sensor-visualization stage of the project. Model comparison, automated anomaly detection, and explainability are planned future work; they are not included here.
