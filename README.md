@@ -39,7 +39,7 @@ The recordings come from a laboratory batch distillation process involving butan
 Requires Python 3.11 or later.
 
 ```bash
-git clone <your-repository-url>
+git clone git@github.com:PoojanKalariya/understanding-anomalies-in-chemical-process.git
 cd chemical-process-anomaly-explorer
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
