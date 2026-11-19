@@ -1,0 +1,26 @@
+# Python and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Streamlit secrets and local configuration
+.streamlit/secrets.toml
+.env
+.env.*
+
+# IDE and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Local development artefacts
+notebooks/
+tests/
+*.ipynb
+*.log
+inspection_output/
+model_output/
+models/
+artifacts/
+*.tmp
