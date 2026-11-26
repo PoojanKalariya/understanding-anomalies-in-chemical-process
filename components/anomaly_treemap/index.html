@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="plotly.min.js"></script><style>html,body,#chart{margin:0;width:100%;height:100%;} body{font-family:system-ui,sans-serif}</style></head>
+<body><div id="chart" aria-label="Operating point and anomaly treemap"></div>
+<script>
+const send = (type, extra={}) => window.parent.postMessage({isStreamlitMessage:true,type,...extra}, "*");
+const chart = document.getElementById("chart");
+let lastArgs = null;
+function render(args) {
+  lastArgs = args;
+  const nodes = args.nodes;
+  const trace = {type:"treemap", ids:nodes.map(n=>n.id), labels:nodes.map(n=>n.label),
+    parents:nodes.map(n=>n.parent), values:nodes.map(n=>n.value), branchvalues:"total",
+    customdata:nodes.map(n=>n.hover), texttemplate:"%{label}", hovertemplate:"%{customdata}<extra></extra>",
+    marker:{colors:nodes.map(n=>n.id===args.selected ? "#5eead4" : n.kind==="leaf" ? "#dbeafe" : "#93c5fd"),
+      line:{color:"white",width:3}},
+    textfont:{size:16,color:"#172033"}, tiling:{pad:0}, root:{color:"#eff6ff"}, maxdepth:3};
+  Plotly.react(chart,[trace],{margin:{t:2,l:2,r:2,b:2},height:500,uniformtext:{minsize:10,mode:"show"}},
+    {displayModeBar:false,responsive:true}).then(()=>{
+      chart.removeAllListeners("plotly_treemapclick");
+      chart.on("plotly_treemapclick", event => {
+        const id=event.points[0].id;
+        if (nodes.some(n=>n.id===id && n.kind==="leaf"))
+          send("streamlit:setComponentValue",{value:id,dataType:"json"});
+        return false;
+      });
+    });
+  send("streamlit:setFrameHeight",{height:510});
+}
+window.addEventListener("message", event => {
+  if(event.data.type === "streamlit:render") render(event.data.args);
+});
+window.addEventListener("resize",()=>{ if(lastArgs) Plotly.Plots.resize(chart); });
+send("streamlit:componentReady",{apiVersion:1});
+send("streamlit:setFrameHeight",{height:510});
+</script></body></html>

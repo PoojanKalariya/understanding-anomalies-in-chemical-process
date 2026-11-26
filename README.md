@@ -19,12 +19,11 @@ The recordings come from a laboratory batch distillation process involving butan
 
 ## Features
 
-- Operating-point treemap sized by distinct annotated anomaly IDs
-- Compact anomaly-card navigation
+- Interactive nested treemap grouping anomalies by operating point, with equal weight per recording-scoped anomaly
 - Eleven-sensor response overview with valid YAML intervals highlighted
-- Detailed raw-measurement inspection for a selected sensor
+- Independent event-context and Full Run controls for the sensor overview and detailed raw-measurement inspection
 - Full-recording visualization for recurrent anomalies
-- Optional comparison with a normal recording from the same operating point
+- Optional full-recording overlay with a normal run from the same operating point, aligned by elapsed time
 
 ## Technologies
 
@@ -33,6 +32,8 @@ The recordings come from a laboratory batch distillation process involving butan
 - Pandas and NumPy
 - Plotly
 - PyYAML
+
+The nested treemap uses a local Streamlit custom component with a bundled Plotly.js asset; no external CDN is required.
 
 ## Installation and local execution
 

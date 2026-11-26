@@ -7,12 +7,14 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+from html import escape
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
+import streamlit.components.v1 as components
 import yaml
 
 from sensors import REQUIRED_SENSORS
@@ -588,6 +590,7 @@ def build_response_overview(
         showlegend=False,
         hovermode="x unified",
     )
+    figure.update_xaxes(range=[display_data["plot_time"].iloc[0], display_data["plot_time"].iloc[-1]])
     figure.update_xaxes(title_text="Recording time", tickformat="%H:%M:%S", row=len(REQUIRED_SENSORS), col=1)
     return figure, methods, render_stride
 
@@ -624,7 +627,7 @@ def build_detailed_sensor_chart(
         title=f"Anomalous recording — {sensor}", xaxis_title="Recording time", yaxis_title=sensor,
         height=420, margin=dict(l=40, r=24, t=50, b=40), hovermode="x unified",
     )
-    figure.update_xaxes(tickformat="%H:%M:%S")
+    figure.update_xaxes(tickformat="%H:%M:%S", range=[chart_data["plot_time"].iloc[0], chart_data["plot_time"].iloc[-1]])
     return figure
 
 
@@ -633,32 +636,30 @@ def build_sensor_comparison_chart(
     normal_data: pd.DataFrame,
     sensor: str,
     events: list[dict],
-    context_seconds: int,
-    full_timeline: bool,
     normal_name: str,
 ) -> go.Figure:
-    """Original-unit anomalous and normal views without a false time alignment."""
-    focus_event = min(events, key=lambda event: event["start_index"])
-    anomalous_view = event_view_data(anomalous_data, focus_event, context_seconds, full_timeline)
-    anomalous_times = pd.to_datetime(anomalous_data["Time"], format="%H:%M:%S")
-    figure = make_subplots(
-        rows=2, cols=1, shared_xaxes=False, vertical_spacing=0.13,
-        subplot_titles=(f"Anomalous recording — {sensor}", f"Normal recording — {normal_name}"),
+    """Overlay complete recordings using independent elapsed-time origins."""
+    anomalous_elapsed = elapsed_minutes(anomalous_data)
+    normal_elapsed = elapsed_minutes(normal_data)
+    figure = go.Figure()
+    figure.add_trace(go.Scatter(
+        x=anomalous_elapsed, y=anomalous_data[sensor], mode="lines", name="Anomalous Run",
+        line=dict(color="#d55e00", width=2, dash="solid"),
+        hovertemplate="Anomalous<br>Elapsed: %{x:.2f} min<br>Value: %{y}<extra></extra>",
+    ))
+    figure.add_trace(go.Scatter(
+        x=normal_elapsed, y=normal_data[sensor], mode="lines", name="Normal Run",
+        line=dict(color="#0072b2", width=2, dash="solid"),
+        hovertemplate="Normal<br>Elapsed: %{x:.2f} min<br>Value: %{y}<extra></extra>",
+    ))
+    add_event_regions(figure, anomalous_elapsed, events)
+    figure.update_layout(
+        title=dict(text=f"Normal and anomalous recordings — {sensor}", y=0.98, yanchor="top"), height=440,
+        margin=dict(l=42, r=24, t=95, b=38), hovermode="x unified",
+        legend=dict(orientation="h", x=0, xanchor="left", y=1.03, yanchor="bottom"),
+        xaxis=dict(title="Elapsed time (minutes)", range=[0, max(anomalous_elapsed.iloc[-1], normal_elapsed.iloc[-1])]),
+        yaxis=dict(title=sensor),
     )
-    figure.add_trace(
-        go.Scatter(x=anomalous_view["plot_time"], y=anomalous_view[sensor], mode="lines", line=dict(color="#2563eb", width=1.6)),
-        row=1, col=1,
-    )
-    figure.add_trace(
-        go.Scatter(x=elapsed_minutes(normal_data), y=normal_data[sensor], mode="lines", line=dict(color="#64748b", width=1.5)),
-        row=2, col=1,
-    )
-    add_event_regions(figure, anomalous_times, events, row=1)
-    figure.update_layout(height=680, margin=dict(l=42, r=24, t=58, b=38), showlegend=False, hovermode="x unified")
-    figure.update_yaxes(title_text=sensor, row=1, col=1)
-    figure.update_yaxes(title_text=sensor, row=2, col=1)
-    figure.update_xaxes(title_text="Recording time", tickformat="%H:%M:%S", row=1, col=1)
-    figure.update_xaxes(title_text="Elapsed minutes from normal recording start", row=2, col=1)
     return figure
 
 
@@ -691,10 +692,45 @@ def clear_sensor_detail() -> None:
     st.session_state.pop("normal_recording_choice", None)
 
 
-def select_anomaly_card(card_key: str) -> None:
+def select_anomaly_card(op: str, card_key: str) -> None:
     """Use a native button callback so the full card remains the selection target."""
+    st.session_state["nav_selected_op"] = op
     st.session_state["nav_selected_card"] = card_key
     clear_sensor_detail()
+
+
+def treemap_nodes(catalog: dict[str, list[dict]]) -> list[dict]:
+    """Create weighted hierarchy; stable leaf IDs include OP, recording and anomaly ID."""
+    total = sum(len(cards) for cards in catalog.values())
+    nodes = [dict(id="root", label="Batch Distillation Anomalies", parent="", value=total, kind="root", hover="Batch Distillation Anomalies")]
+    for op, cards in catalog.items():
+        if not cards:
+            continue
+        nodes.append(dict(id=op, label=op, parent="root", value=len(cards), kind="op", hover=escape(op)))
+        for card in cards:
+            description = "; ".join(card["perturbations"]) or "Not provided"
+            categories = ", ".join(card["categories"]) or "Not provided"
+            sensors = ", ".join(card["sensors"]) or "Not provided"
+            equipment = ", ".join(card["equipment"]) or "Not provided"
+            hover = (f"{escape(op)} · {escape(str(card['anomaly_id'] or 'Missing ID'))}"
+                     f"<br>Category: {escape(categories)}<br>Disturbance: {escape(description)}"
+                     f"<br>Sensors: {escape(sensors)}<br>Equipment: {escape(equipment)}"
+                     f"<br>Occurrences: {len(card['events'])}")
+            nodes.append(dict(id=f"{op}::{card['key']}", label=short_anomaly_id(card["anomaly_id"]),
+                              parent=op, value=1, kind="leaf", hover=hover))
+    return nodes
+
+
+def apply_treemap_selection(selection: str | None, catalog: dict[str, list[dict]]) -> bool:
+    """Accept only a known leaf, clearing details only for a changed selection."""
+    for op, cards in catalog.items():
+        for card in cards:
+            if selection == f"{op}::{card['key']}":
+                if (st.session_state.get("nav_selected_op"), st.session_state.get("nav_selected_card")) != (op, card["key"]):
+                    select_anomaly_card(op, card["key"])
+                    return True
+                return False
+    return False
 
 
 st.title("Chemical Process Anomaly Explorer")
@@ -707,54 +743,31 @@ if not operating_points:
 if "nav_selected_op" not in st.session_state:
     st.session_state["nav_selected_op"] = "OP17" if "OP17" in operating_points else operating_points[0]
 
-counts = anomaly_counts_by_op(operating_points)
-nav_left, nav_right = st.columns([1, 1], gap="large")
-with nav_left:
-    st.subheader("Operating Points")
-    st.caption("Each rectangle represents an operating point, sized by its number of distinct annotated anomalies. Select one to explore its events.")
-    treemap_selection = st.plotly_chart(
-        build_operating_point_treemap(counts, st.session_state["nav_selected_op"]),
-        key="operating_point_treemap",
-        on_select="rerun",
-        selection_mode="points",
-        width="stretch",
-    )
-    clicked_op = selected_treemap_op(treemap_selection, operating_points)
-    if clicked_op and clicked_op != st.session_state["nav_selected_op"]:
-        st.session_state["nav_selected_op"] = clicked_op
-        st.rerun()
-    selected_op = st.selectbox("Operating point", operating_points, key="nav_selected_op")
-    st.caption("Area represents distinct annotated anomaly IDs, not severity or duration.")
+catalog = {op: anomaly_catalog(op) for op in operating_points}
+selected_op = st.session_state["nav_selected_op"]
+if selected_op not in catalog or not catalog[selected_op]:
+    selected_op = next((op for op in operating_points if catalog[op]), None)
+    if selected_op is None:
+        st.error("No annotated anomalies were found.")
+        st.stop()
+    st.session_state["nav_selected_op"] = selected_op
+cards = catalog[selected_op]
+if st.session_state.get("nav_selected_card") not in {card["key"] for card in cards}:
+    st.session_state["nav_selected_card"] = cards[0]["key"]
 
-cards = anomaly_catalog(selected_op)
-if not cards:
-    st.error(f"No annotated anomalous recording was found for {selected_op}.")
-    st.stop()
-card_keys = [card["key"] for card in cards]
-if st.session_state.get("nav_selected_card") not in card_keys:
-    st.session_state["nav_selected_card"] = card_keys[0]
-
-with nav_right:
-    st.subheader("Anomalies")
-    st.caption("Choose an anomaly to examine its documented disturbance and sensor responses.")
-    card_columns = st.columns(2, gap="small")
-    for index, card in enumerate(cards):
-        selected = card["key"] == st.session_state["nav_selected_card"]
-        with card_columns[index % 2]:
-            st.button(
-                f"{short_anomaly_id(card['anomaly_id'])}\n\n{card['anomaly_id'] or 'Missing anomaly ID'}",
-                key=f"anomaly_card_{card['key']}",
-                help=f"Select {card['anomaly_id'] or 'this anomaly'}",
-                on_click=select_anomaly_card,
-                args=(card["key"],),
-                type="primary" if selected else "secondary",
-                use_container_width=True,
-                wrap=True,
-            )
+st.subheader("Operating points and anomalies")
+st.caption("Each anomaly has equal weight; operating-point area reflects its anomaly count.")
+treemap_component = components.declare_component("anomaly_treemap", path=str(Path(__file__).parent / "components" / "anomaly_treemap"))
+selection = treemap_component(nodes=treemap_nodes(catalog), selected=f"{selected_op}::{st.session_state['nav_selected_card']}", key="hierarchical_treemap", default=None)
+if apply_treemap_selection(selection, catalog):
+    selected_op = st.session_state["nav_selected_op"]
+    cards = catalog[selected_op]
+    st.rerun()
 
 selected_card = next(card for card in cards if card["key"] == st.session_state["nav_selected_card"])
-with nav_right:
-    show_unresolved_warning(selected_card["events"])
+description = short_text(selected_card["perturbations"][0], 140) if selected_card["perturbations"] else "No disturbance description"
+st.caption(f"**{selected_op} · {short_anomaly_id(selected_card['anomaly_id'])}**  |  {', '.join(selected_card['categories']) or 'Category unspecified'}  |  {description}  |  Sensors: {', '.join(selected_card['sensors']) or 'unspecified'}")
+show_unresolved_warning(selected_card["events"])
 
 st.divider()
 st.header("Sensor Responses")
@@ -806,14 +819,16 @@ else:
 
 controls_left, controls_right = st.columns([1, 1])
 with controls_left:
-    if full_timeline:
-        context_seconds = 300
-        st.caption("All valid intervals are shown across the full recording.")
-    else:
-        context_seconds = st.slider(
-            "Context (seconds)", min_value=60, max_value=900, value=300, step=30,
-            key=f"response_context_{detail_scope}",
-        )
+    overview_range = st.select_slider(
+        "Context (seconds)", options=[*range(0, 901, 30), "Full Run"],
+        value="Full Run" if full_timeline else 300,
+        format_func=lambda value: value if isinstance(value, str) else f"{value} seconds",
+        key=f"response_range_{detail_scope}",
+    )
+    overview_full_timeline = full_timeline or overview_range == "Full Run"
+    context_seconds = 300 if isinstance(overview_range, str) or full_timeline else overview_range
+    if full_timeline and overview_range != "Full Run":
+        st.caption("All valid occurrences remain visible across the full recording.")
 with controls_right:
     detailed_sensor = st.selectbox(
         "Inspect sensor", [None, *REQUIRED_SENSORS], key="detail_sensor_choice",
@@ -826,6 +841,7 @@ with st.expander("How overview scaling works"):
         "(or the available pre-event samples if fewer). The plotted response is "
         "`(value − pre-event median) / (1.4826 × pre-event MAD)`. For a nearly constant baseline, "
         "the fallback scale is 1% of the absolute pre-event median, with a minimum of `1e-6`. "
+        "At zero seconds of display context, up to 30 seconds before the event are still used for scaling. "
         "No during-event or post-event samples are used for the baseline."
     )
 
@@ -834,8 +850,8 @@ overview, scaling_methods, render_stride = build_response_overview(
     active_events,
     documented_sensors,
     context_seconds,
-    full_timeline=full_timeline,
-    baseline_seconds=min(300, context_seconds),
+    full_timeline=overview_full_timeline,
+    baseline_seconds=min(300, max(30, context_seconds)),
     normal_reference=normal_reference_data,
 )
 st.plotly_chart(overview, width="stretch")
@@ -857,22 +873,33 @@ if detailed_sensor is not None:
     close_detail.button("Close", key="close_sensor_detail", on_click=clear_sensor_detail, use_container_width=True)
 
     compare_normal = st.checkbox("Compare with normal", key="compare_with_normal", disabled=not normal_paths)
+    detail_options = [*range(0, 901, 30), "Full Run"]
+    detail_range = st.select_slider(
+        "Detail time range",
+        options=detail_options,
+        value="Full Run" if full_timeline else 300,
+        format_func=lambda value: value if isinstance(value, str) else f"{value} seconds",
+        key=f"detail_range_{detail_scope}",
+        disabled=compare_normal,
+    )
+    detail_full_timeline = detail_range == "Full Run"
+    detail_context = 0 if detail_full_timeline else detail_range
+
     if compare_normal:
         normal_path = st.selectbox(
             "Normal recording", normal_paths, key="normal_recording_choice", format_func=lambda path: path.name,
         )
         normal_data = load_recording(str(normal_path))
-        st.caption("Compare with a separate normal recording from the same operating point. The experiments are not necessarily synchronized.")
+        st.caption("Recordings are aligned by elapsed time from their respective starts; matching elapsed times do not necessarily indicate identical process states.")
         st.plotly_chart(
             build_sensor_comparison_chart(
-                selected_recording, normal_data, detailed_sensor, active_events,
-                context_seconds, full_timeline, normal_path.name,
+                selected_recording, normal_data, detailed_sensor, active_events, normal_path.name,
             ),
             width="stretch",
         )
     else:
         st.plotly_chart(
-            build_detailed_sensor_chart(selected_recording, detailed_sensor, active_events, context_seconds, full_timeline),
+            build_detailed_sensor_chart(selected_recording, detailed_sensor, active_events, detail_context, detail_full_timeline),
             width="stretch",
         )
 
